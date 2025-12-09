@@ -1,55 +1,74 @@
+import api from '@/hooks/http';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [data, setData] = useState({ id_number: '', password: '' });
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter email and password');
+  // Fetch profile using token
+  const fetchProfile = async (token?: string) => {
+    try {
+      const t = token || (await AsyncStorage.getItem('auth_token'));
+      if (!t) throw new Error('No token found');
+
+      const response = await api.get('auth/user/me/', {
+        headers: { Authorization: 'Token ' + t }
+      });
+
+      // Map snake_case to camelCase
+      const userData = {
+        firstName: response.data.first_name || '',
+        middleName: response.data.middle_name || '',
+        lastName: response.data.last_name || '',
+        email: response.data.email || ''
+      };
+
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      console.log('Profile fetched:', userData);
+      Alert.alert('Success', 'Profile fetched successfully!');
+    } catch (error: any) {
+      console.log('Fetch profile error:', error.response?.data || error.message);
+      Alert.alert('Error', 'Failed to fetch profile.');
+    }
+  };
+
+  const onPressLogin = async () => {
+    if (!data.id_number || !data.password) {
+      Alert.alert('Error', 'Please enter ID number and password');
       return;
     }
 
+    setLoading(true);
+
     try {
-      const userData = await AsyncStorage.getItem(`user:${email}`);
-      if (!userData) {
-        Alert.alert('Error', 'User not found');
-        return;
-      }
+      // 1️⃣ Login and get token
+      const response = await api.post('auth/token/login/', data); 
+      const token = response.data.auth_token;
+      if (!token) throw new Error('Invalid credentials');
 
-      const user = JSON.parse(userData);
+      await AsyncStorage.setItem('auth_token', token);
 
-      if (user.password !== password) {
-        Alert.alert('Error', 'Incorrect password');
-        return;
-      }
+      // 2️⃣ Fetch profile
+      await fetchProfile(token);
 
-      // Save logged-in email
-      await AsyncStorage.setItem('loggedInEmail', email);
-
-      // Navigate based on role
-      if (user.role === 'Doctor') {
-        router.push('/dashboard'); // Doctor dashboard
-      } else {
-        router.push('/patient-dashboard'); // Patient dashboard
-      }
-    } catch (error) {
-      console.log(error);
-      Alert.alert('Error', 'Failed to login');
+      // 3️⃣ Redirect to dashboard
+      router.push('/patient-dashboard');
+    } catch (error: any) {
+      console.log('Login error:', error.response?.data || error.message);
+      Alert.alert('Error', 'Login failed. Check your credentials.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const goToRegister = () => {
-    router.push('/register'); // Navigate to register screen
-  };
+  const goToRegister = () => router.push('/register');
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Logo */}
       <View style={styles.logoContainer}>
         <Image source={require('@/assets/images/medical.png')} style={styles.logo} />
       </View>
@@ -58,82 +77,53 @@ export default function LoginScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="Email"
-        placeholderTextColor="#ccc"
-        value={email}
-        onChangeText={setEmail}
-        keyboardType="email-address"
+        placeholder="ID Number"
+        placeholderTextColor="#aaa"
+        value={data.id_number}
+        onChangeText={(text) => setData({ ...data, id_number: text })}
       />
+
       <TextInput
         style={styles.input}
         placeholder="Password"
-        placeholderTextColor="#ccc"
-        value={password}
-        onChangeText={setPassword}
+        placeholderTextColor="#aaa"
         secureTextEntry
+        value={data.password}
+        onChangeText={(text) => setData({ ...data, password: text })}
       />
 
-      <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-        <Text style={styles.loginText}>LOGIN</Text>
+      <TouchableOpacity
+        style={[styles.loginButton, loading && { opacity: 0.7 }]}
+        onPress={onPressLogin}
+        disabled={loading}
+      >
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginText}>LOGIN</Text>}
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.registerLink} onPress={goToRegister}>
         <Text style={styles.registerText}>Don't have an account? Register</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.profileButton}
+        onPress={() => fetchProfile()}
+      >
+        <Text style={styles.profileButtonText}>Get Profile</Text>
       </TouchableOpacity>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#D9D9D9',
-    paddingHorizontal: 20,
-    paddingVertical: 50,
-  },
-  logoContainer: {
-    marginBottom: 30,
-    alignItems: 'center',
-  },
-  logo: {
-    width: 180,
-    height: 150,
-    resizeMode: 'contain',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 30,
-    color: '#000',
-  },
-  input: {
-    width: '100%',
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 15,
-  },
-  loginButton: {
-    width: '100%',
-    backgroundColor: '#D95A58',
-    padding: 18,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  loginText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  registerLink: {
-    marginTop: 15,
-  },
-  registerText: {
-    color: '#D95A58',
-    fontSize: 16,
-    fontWeight: '600',
-    textDecorationLine: 'underline',
-  },
+  container: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#D9D9D9' },
+  logoContainer: { marginBottom: 30 },
+  logo: { width: 180, height: 150, resizeMode: 'contain' },
+  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 30 },
+  input: { width: '100%', backgroundColor: '#fff', padding: 15, borderRadius: 12, marginBottom: 15 },
+  loginButton: { width: '100%', backgroundColor: '#D95A58', padding: 18, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
+  loginText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  registerLink: { marginTop: 15, marginBottom: 15 },
+  registerText: { color: '#D95A58', fontSize: 16, textDecorationLine: 'underline' },
+  profileButton: { width: '100%', backgroundColor: '#4CAF50', padding: 15, borderRadius: 12, alignItems: 'center', marginTop: 20 },
+  profileButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });
